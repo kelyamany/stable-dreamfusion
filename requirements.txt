@@ -22,3 +22,7 @@ imageio-ffmpeg
 accelerate
 tensorboard
 pymeshlab
+
+# Optional Dependendencies
+gradio
+wheels
