@@ -23,6 +23,5 @@ accelerate
 tensorboard
 pymeshlab
 
-# Optional Dependendencies
-gradio
-wheels
+# # Optional Dependendencies
+# gradio
