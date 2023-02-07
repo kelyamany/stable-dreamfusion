@@ -8,7 +8,7 @@ from nerf.gui import NeRFGUI
 
 # torch.autograd.set_detect_anomaly(True)
 
-if __name__ == '__main__':
+def parse_args():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--text', default=None, help="text prompt")
@@ -56,7 +56,7 @@ if __name__ == '__main__':
     # rendering resolution in training, decrease this if CUDA OOM.
     parser.add_argument('--w', type=int, default=64, help="render width for NeRF in training")
     parser.add_argument('--h', type=int, default=64, help="render height for NeRF in training")
-    
+
     ### dataset options
     parser.add_argument('--bound', type=float, default=1, help="assume the scene is bounded in box(-bound, bound)")
     parser.add_argument('--dt_gamma', type=float, default=0, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
@@ -84,8 +84,12 @@ if __name__ == '__main__':
     parser.add_argument('--light_phi', type=float, default=0, help="default GUI light direction in [0, 360), azimuth")
     parser.add_argument('--max_spp', type=int, default=1, help="GUI rendering max sample per pixel")
 
-    opt = parser.parse_args()
+    parser.add_argument('--need_share', type=bool, default=False,
+                        help="do you want to share gradio app to external network?")
 
+    return parser.parse_args()
+
+def run(opt: argparse.Namespace):
     if opt.O:
         opt.fp16 = True
         opt.dir_text = True
@@ -126,18 +130,18 @@ if __name__ == '__main__':
         if opt.gui:
             gui = NeRFGUI(opt, trainer)
             gui.render()
-        
+
         else:
             test_loader = NeRFDataset(opt, device=device, type='test', H=opt.H, W=opt.W, size=100).dataloader()
             trainer.test(test_loader)
-            
+
             if opt.save_mesh:
                 # a special loader for poisson mesh reconstruction, 
                 # loader = NeRFDataset(opt, device=device, type='test', H=128, W=128, size=100).dataloader()
                 trainer.save_mesh()
-    
+
     else:
-        
+
         train_loader = NeRFDataset(opt, device=device, type='train', H=opt.h, W=opt.w, size=100).dataloader()
 
         if opt.optim == 'adan':
@@ -149,7 +153,7 @@ if __name__ == '__main__':
 
         if opt.backbone == 'vanilla':
             warm_up_with_cosine_lr = lambda iter: iter / opt.warm_iters if iter <= opt.warm_iters \
-                else max(0.5 * ( math.cos((iter - opt.warm_iters) /(opt.iters - opt.warm_iters) * math.pi) + 1), 
+                else max(0.5 * ( math.cos((iter - opt.warm_iters) /(opt.iters - opt.warm_iters) * math.pi) + 1),
                          opt.min_lr / opt.lr)
 
             scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, warm_up_with_cosine_lr)
@@ -173,9 +177,20 @@ if __name__ == '__main__':
 
             gui = NeRFGUI(opt, trainer)
             gui.render()
-        
+
         else:
             valid_loader = NeRFDataset(opt, device=device, type='val', H=opt.H, W=opt.W, size=5).dataloader()
 
             max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
             trainer.train(train_loader, valid_loader, max_epoch)
+
+            if opt.save_mesh:
+                # a special loader for poisson mesh reconstruction, 
+                # loader = NeRFDataset(opt, device=device, type='test', H=128, W=128, size=100).dataloader()
+                trainer.save_mesh()
+
+
+if __name__ == '__main__':
+    opt = parse_args()
+    run(opt)
+
