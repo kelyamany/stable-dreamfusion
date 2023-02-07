@@ -49,8 +49,9 @@ with gr.Blocks(css=".gradio-container {max-width: 512px; margin: auto;}") as dem
     # material = gr.File(label="Material File", type="file")
     logs = gr.Textbox(label="logging")
 
+    opt = options
     # gradio main func
-    def submit(opt: argparse.Namespace):
+    def submit():
 
         print(f'[INFO] loading options..')
         if opt.backbone == 'vanilla':
@@ -160,7 +161,7 @@ with gr.Blocks(css=".gradio-container {max-width: 512px; margin: auto;}") as dem
     
     button.click(
         submit, 
-        [options],
+        [],
         [image, video, logs]
     )
 
