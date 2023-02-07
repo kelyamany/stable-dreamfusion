@@ -23,5 +23,15 @@ accelerate
 tensorboard
 pymeshlab
 
-# # Optional Dependendencies
-# gradio
+# # # Optional Dependendencies
+# # (optional) install nvdiffrast for exporting textured mesh (if use --save_mesh)
+# git+https://github.com/NVlabs/nvdiffrast/
+
+# # (optional) install CLIP guidance for the dreamfield setting
+# git+https://github.com/openai/CLIP.git
+
+# # Build extension (optional)
+# ./raymarching
+# ./shencoder
+# ./freqencoder
+# ./gridencoder
