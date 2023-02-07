@@ -20,24 +20,18 @@ with gr.Blocks(css=".gradio-container {max-width: 512px; margin: auto;}") as dem
     gr.Markdown('[Stable-DreamFusion](https://github.com/ashawkey/stable-dreamfusion) Text-to-3D')
 
     # inputs
-    options.text = gr.Textbox(label="Prompt", max_lines=1, value="a plywood chair")
-    options.negative = gr.Textbox(label="Exclude", max_lines=1, value="")
-    options.workspace = gr.Textbox(label="Workspace", max_lines=1, value="workspace")
+    text = gr.Textbox(label="Prompt", max_lines=1, value="a plywood chair")
+    negative = gr.Textbox(label="Exclude", max_lines=1, value="")
+    workspace = gr.Textbox(label="Workspace", max_lines=1, value="workspace")
     nerf_backbone = gr.Radio(choices=['Instant-NGP', 'Vanilla'], label="NeRF Backbone", value='Instant-NGP')
-    options.iters = gr.Slider(label="Iters", minimum=1000, maximum=20000, value=5000, step=100)
-    options.seed = gr.Slider(label="Seed", minimum=0, maximum=2147483647, step=1, randomize=True)
+    iters = gr.Slider(label="Iters", minimum=1000, maximum=20000, value=5000, step=100)
+    seed = gr.Slider(label="Seed", minimum=0, maximum=2147483647, step=1, randomize=True)
 
-    options.save_mesh = gr.Checkbox(label="Save Mesh", value=True)
-    options.mcubes_resolution = gr.Number(label="Mesh Resolution", value=256, type=int)
-    options.decimate_target = gr.Number(label="Mesh Decimation", value=1e5, type=int)
+    save_mesh = gr.Checkbox(label="Save Mesh", value=True)
+    mcubes_resolution = gr.Number(label="Mesh Resolution", value=256, type=int)
+    decimate_target = gr.Number(label="Mesh Decimation", value=1e5, type=int)
 
-    options.guidance = gr.Radio(choices=['stable-diffusion', 'clip'], label="Guidance", value='stable-diffusion')
-
-
-    if nerf_backbone == 'Instant-NGP':
-        options.O = True
-    else:
-        options.O2 = True
+    guidance = gr.Radio(choices=['stable-diffusion', 'clip'], label="Guidance", value='stable-diffusion')
 
     button = gr.Button('Generate')
 
@@ -49,9 +43,31 @@ with gr.Blocks(css=".gradio-container {max-width: 512px; margin: auto;}") as dem
     # material = gr.File(label="Material File", type="file")
     logs = gr.Textbox(label="logging")
 
-    opt = options
     # gradio main func
-    def submit():
+    def parse_inputs(text, negative, workspace, nerf_backbone, iters, seed, save_mesh, mcubes_resolution, decimate_target, guidance):
+        # inputs
+        options.text = text
+        options.negative = negative
+        options.workspace = workspace
+        options.iters = iters
+        options.seed = seed
+
+        options.save_mesh = save_mesh
+        options.mcubes_resolution = mcubes_resolution
+        options.decimate_target = decimate_target
+
+        options.guidance = guidance
+
+        if nerf_backbone == 'Instant-NGP':
+            options.O = True
+        else:
+            options.O2 = True
+
+        return options
+
+    def submit(text, negative, workspace, nerf_backbone, iters, seed, save_mesh, mcubes_resolution, decimate_target, guidance):
+
+        opt = parse_inputs(text, negative, workspace, nerf_backbone, iters, seed, save_mesh, mcubes_resolution, decimate_target, guidance)
 
         print(f'[INFO] loading options..')
         if opt.backbone == 'vanilla':
@@ -161,7 +177,7 @@ with gr.Blocks(css=".gradio-container {max-width: 512px; margin: auto;}") as dem
     
     button.click(
         submit, 
-        [],
+        [text, negative, workspace, nerf_backbone, iters, seed, save_mesh, mcubes_resolution, decimate_target, guidance],
         [image, video, logs]
     )
 
