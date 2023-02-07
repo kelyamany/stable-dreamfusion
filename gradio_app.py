@@ -36,11 +36,10 @@ with gr.Blocks(css=".gradio-container {max-width: 512px; margin: auto;}") as dem
     button = gr.Button('Generate')
 
     # outputs
-    image = gr.Image(label="image", visible=True)
-    video = gr.Video(label="video", visible=False)
+    image = gr.outputs.Image(label="image", visible=True)
+    video = gr.outputs.Video(label="video", visible=save_mesh.value)
     # Download link for a .obj file
-    # mesh = gr.File(label="Mesh File", type="file")
-    # material = gr.File(label="Material File", type="file")
+    mesh = gr.Model3D(label="3D Model", visible=save_mesh.value)
     logs = gr.Textbox(label="logging")
 
     # gradio main func
@@ -165,12 +164,17 @@ with gr.Blocks(css=".gradio-container {max-width: 512px; margin: auto;}") as dem
         results = glob.glob(os.path.join(opt.workspace, 'results', '*rgb*.mp4'))
         assert results is not None, "cannot retrieve results!"
         results.sort(key=lambda x: os.path.getmtime(x)) # sort by mtime
-        
+
+        mesh_files = glob.glob(os.path.join(opt.workspace, 'results', '*.obj'))
+        assert mesh_files is not None, "cannot retrieve meshes!"
+        mesh_files.sort(key=lambda x: os.path.getmtime(x)) # sort by mtime
+
         end_t = time.time()
         
         yield {
             image: gr.update(visible=False),
             video: gr.update(value=results[-1], visible=True),
+            model: gr.update(value=mesh_files[-1], visible=opt.save_mesh),
             logs: f"Generation Finished in {(end_t - start_t)/ 60:.4f} minutes!",
         }
 
@@ -178,7 +182,7 @@ with gr.Blocks(css=".gradio-container {max-width: 512px; margin: auto;}") as dem
     button.click(
         submit, 
         [text, negative, workspace, nerf_backbone, iters, seed, save_mesh, mcubes_resolution, decimate_target, guidance],
-        [image, video, logs]
+        [image, video, mesh, logs]
     )
 
 # concurrency_count: only allow ONE running progress, else GPU will OOM.
