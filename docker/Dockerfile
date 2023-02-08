@@ -1,14 +1,15 @@
-FROM nvidia/cuda:11.6.2-cudnn8-devel-ubuntu20.04
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 # Remove any third-party apt sources to avoid issues with expiring keys.
 RUN rm -f /etc/apt/sources.list.d/*.list
 
-RUN apt-get update
-
-RUN DEBIAN_FRONTEND=noninteractive TZ=Europe/MADRID apt-get install -y tzdata
+ENV TZ=Europe/Vienna
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install some basic utilities
-RUN apt-get install -y \
+RUN apt-get update && \
+    apt install -y \
+    tzdata \
     curl \
     ca-certificates \
     sudo \
@@ -20,34 +21,17 @@ RUN apt-get install -y \
     libglfw3-dev \
     libgles2-mesa-dev \
     libglib2.0-0 \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
+WORKDIR /src
 
-# Create a working directory
-RUN mkdir /app
-WORKDIR /app
-
-RUN cd /app
-RUN git clone https://github.com/ashawkey/stable-dreamfusion.git
-
-
-RUN pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116
-
-WORKDIR /app/stable-dreamfusion
-
+# Install Python Modules
+COPY requirements.txt .
 RUN pip3 install -r requirements.txt
-RUN pip3 install git+https://github.com/NVlabs/nvdiffrast/
 
-# Needs nvidia runtime, if you have "No CUDA runtime is found" error: https://stackoverflow.com/questions/59691207/docker-build-with-nvidia-runtime, first answer
-RUN pip3 install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+COPY . .
 
-RUN pip3 install git+https://github.com/openai/CLIP.git
-RUN bash scripts/install_ext.sh
+RUN pip3 install -r requirements.optional.txt; sh scripts/install_ext.sh || echo "Failed to install opt/ext"
 
-
-
-
-
-# Set the default command to python3
-#CMD ["python3"]
+CMD ["python3","-u", "gradio_app.py"]
 

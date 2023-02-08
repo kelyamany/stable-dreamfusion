@@ -1,9 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cu113
+torch
 torch-ema
+torchvision
+torchaudio
 ninja
 trimesh
 opencv-python
 tensorboardX
-torch
 numpy 
 pandas
 tqdm
@@ -24,6 +27,7 @@ tensorboard
 pymeshlab
 
 # # # Optional Dependendencies
+# gradio
 # # (optional) install nvdiffrast for exporting textured mesh (if use --save_mesh)
 # git+https://github.com/NVlabs/nvdiffrast/
 

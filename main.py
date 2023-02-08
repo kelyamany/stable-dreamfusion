@@ -1,3 +1,5 @@
+import subprocess
+
 import torch
 import argparse
 
@@ -7,6 +9,9 @@ from nerf.utils import *
 from nerf.gui import NeRFGUI
 
 # torch.autograd.set_detect_anomaly(True)
+def install_additional_packages():
+    subprocess.call(['pip', 'install', '-r', 'requirements.optional.txt'])
+    subprocess.call(['pip', 'install', '-r', 'requirements.extensions.txt'])
 
 def parse_args():
 
@@ -89,22 +94,19 @@ def parse_args():
 
     return parser.parse_args()
 
-def run(opt: argparse.Namespace):
-    if opt.O:
-        opt.fp16 = True
-        opt.dir_text = True
-        opt.cuda_ray = True
-
-    elif opt.O2:
-        # only use fp16 if not evaluating normals (else lead to NaNs in training...)
-        if opt.albedo:
-            opt.fp16 = True
-        opt.dir_text = True
-        opt.backbone = 'vanilla'
-
+def set_Vanilla_NeRF_args(opt: argparse.Namespace):
+    # only use fp16 if not evaluating normals (else lead to NaNs in training...)
     if opt.albedo:
-        opt.albedo_iters = opt.iters
+        opt.fp16 = True
+    opt.dir_text = True
+    opt.backbone = 'vanilla'
 
+def set_instant_ngp_NeRF_args(opt: argparse.Namespace):
+    opt.fp16 = True
+    opt.dir_text = True
+    opt.cuda_ray = True
+
+def get_model(opt: argparse.Namespace):
     if opt.backbone == 'vanilla':
         from nerf.network import NeRFNetwork
     elif opt.backbone == 'grid':
@@ -112,85 +114,127 @@ def run(opt: argparse.Namespace):
     else:
         raise NotImplementedError(f'--backbone {opt.backbone} is not implemented!')
 
+    return NeRFNetwork(opt)
+
+def get_guidance(opt: argparse.Namespace, device):
+    guidance = None
+    if opt.guidance == 'stable-diffusion':
+        from nerf.sd import StableDiffusion
+        guidance = StableDiffusion(device, opt.sd_version, opt.hf_key)
+    elif opt.guidance == 'clip':
+        from nerf.clip import CLIP
+        guidance = CLIP(device)
+    else:
+        raise NotImplementedError(f'--guidance {opt.guidance} is not implemented.')
+
+    return guidance
+
+def get_device():
+    is_cuda_available = torch.cuda.is_available()
+    device_name = 'cuda' if is_cuda_available else 'cpu'
+    print(f"Is CUDA available: {is_cuda_available}")
+    if is_cuda_available:
+        print(f"CUDA device: {torch.cuda.get_device_name(torch.cuda.current_device())}")
+    return torch.device(device_name)
+
+def get_device_name():
+    is_cuda_available = torch.cuda.is_available()
+    device_name = 'cuda' if is_cuda_available else 'cpu'
+    return device_name
+
+def run_test_model(opt: argparse.Namespace, model, device):
+    guidance = None  # no need to load guidance model at test
+
+    trainer = Trainer('df', opt, model, guidance, device=device, workspace=opt.workspace, fp16=opt.fp16,
+                      use_checkpoint=opt.ckpt)
+
+    if opt.gui:
+        gui = NeRFGUI(opt, trainer)
+        gui.render()
+
+    else:
+        test_loader = NeRFDataset(opt, device=device, type='test', H=opt.H, W=opt.W, size=100).dataloader()
+        trainer.test(test_loader)
+
+        if opt.save_mesh:
+            # a special loader for poisson mesh reconstruction,
+            # loader = NeRFDataset(opt, device=device, type='test', H=128, W=128, size=100).dataloader()
+            trainer.save_mesh()
+
+    return trainer
+
+def run(opt: argparse.Namespace,model,device):
+    train_loader = NeRFDataset(opt, device=device, type='train', H=opt.h, W=opt.w, size=100).dataloader()
+
+    if opt.optim == 'adan':
+        from optimizer import Adan
+        # Adan usually requires a larger LR
+        optimizer = lambda model: Adan(model.get_params(5 * opt.lr), eps=1e-8, weight_decay=2e-5, max_grad_norm=5.0,
+                                       foreach=False)
+    else:  # adam
+        optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr), betas=(0.9, 0.99), eps=1e-15)
+
+    if opt.backbone == 'vanilla':
+        warm_up_with_cosine_lr = lambda iter: iter / opt.warm_iters if iter <= opt.warm_iters \
+            else max(0.5 * (math.cos((iter - opt.warm_iters) / (opt.iters - opt.warm_iters) * math.pi) + 1),
+                     opt.min_lr / opt.lr)
+
+        scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, warm_up_with_cosine_lr)
+    else:
+        scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 1)  # fixed
+        # scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
+
+    guidance = get_guidance(opt, device)
+
+    trainer = Trainer('df', opt, model, guidance, device=device, workspace=opt.workspace, optimizer=optimizer,
+                      ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint=opt.ckpt,
+                      eval_interval=opt.eval_interval, scheduler_update_every_step=True)
+
+    if opt.gui:
+        trainer.train_loader = train_loader  # attach dataloader to trainer
+
+        gui = NeRFGUI(opt, trainer)
+        gui.render()
+
+    else:
+        valid_loader = NeRFDataset(opt, device=device, type='val', H=opt.H, W=opt.W, size=5).dataloader()
+
+        max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
+        trainer.train(train_loader, valid_loader, max_epoch)
+
+        if opt.save_mesh:
+            # a special loader for poisson mesh reconstruction,
+            # loader = NeRFDataset(opt, device=device, type='test', H=128, W=128, size=100).dataloader()
+            trainer.save_mesh()
+
+def start(opt: argparse.Namespace):
+    if opt.O:
+        set_instant_ngp_NeRF_args(opt)
+
+    elif opt.O2:
+        set_Vanilla_NeRF_args(opt)
+
+    if opt.albedo:
+        opt.albedo_iters = opt.iters
+
+
+
     print(opt)
 
     seed_everything(opt.seed)
 
-    model = NeRFNetwork(opt)
-
+    model = get_model(opt)
     print(model)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = get_device()
 
     if opt.test:
-        guidance = None # no need to load guidance model at test
-
-        trainer = Trainer('df', opt, model, guidance, device=device, workspace=opt.workspace, fp16=opt.fp16, use_checkpoint=opt.ckpt)
-
-        if opt.gui:
-            gui = NeRFGUI(opt, trainer)
-            gui.render()
-
-        else:
-            test_loader = NeRFDataset(opt, device=device, type='test', H=opt.H, W=opt.W, size=100).dataloader()
-            trainer.test(test_loader)
-
-            if opt.save_mesh:
-                # a special loader for poisson mesh reconstruction, 
-                # loader = NeRFDataset(opt, device=device, type='test', H=128, W=128, size=100).dataloader()
-                trainer.save_mesh()
-
+        run_test_model(opt, model, device)
     else:
-
-        train_loader = NeRFDataset(opt, device=device, type='train', H=opt.h, W=opt.w, size=100).dataloader()
-
-        if opt.optim == 'adan':
-            from optimizer import Adan
-            # Adan usually requires a larger LR
-            optimizer = lambda model: Adan(model.get_params(5 * opt.lr), eps=1e-8, weight_decay=2e-5, max_grad_norm=5.0, foreach=False)
-        else: # adam
-            optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr), betas=(0.9, 0.99), eps=1e-15)
-
-        if opt.backbone == 'vanilla':
-            warm_up_with_cosine_lr = lambda iter: iter / opt.warm_iters if iter <= opt.warm_iters \
-                else max(0.5 * ( math.cos((iter - opt.warm_iters) /(opt.iters - opt.warm_iters) * math.pi) + 1),
-                         opt.min_lr / opt.lr)
-
-            scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, warm_up_with_cosine_lr)
-        else:
-            scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 1) # fixed
-            # scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
-
-        if opt.guidance == 'stable-diffusion':
-            from nerf.sd import StableDiffusion
-            guidance = StableDiffusion(device, opt.sd_version, opt.hf_key)
-        elif opt.guidance == 'clip':
-            from nerf.clip import CLIP
-            guidance = CLIP(device)
-        else:
-            raise NotImplementedError(f'--guidance {opt.guidance} is not implemented.')
-
-        trainer = Trainer('df', opt, model, guidance, device=device, workspace=opt.workspace, optimizer=optimizer, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint=opt.ckpt, eval_interval=opt.eval_interval, scheduler_update_every_step=True)
-
-        if opt.gui:
-            trainer.train_loader = train_loader # attach dataloader to trainer
-
-            gui = NeRFGUI(opt, trainer)
-            gui.render()
-
-        else:
-            valid_loader = NeRFDataset(opt, device=device, type='val', H=opt.H, W=opt.W, size=5).dataloader()
-
-            max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
-            trainer.train(train_loader, valid_loader, max_epoch)
-
-            if opt.save_mesh:
-                # a special loader for poisson mesh reconstruction, 
-                # loader = NeRFDataset(opt, device=device, type='test', H=128, W=128, size=100).dataloader()
-                trainer.save_mesh()
+        run(opt, model, device)
 
 
 if __name__ == '__main__':
     opt = parse_args()
-    run(opt)
+    start(opt)
 

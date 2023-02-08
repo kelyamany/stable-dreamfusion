@@ -1,0 +1,4 @@
+# Build the dockerfile
+docker build -t bzw-dreamfusion -f ./docker/Dockerfile .
+docker compose up --build
+docker compose run bzw-dreamfusion bash

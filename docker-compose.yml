@@ -1,0 +1,19 @@
+version: '3.7'
+
+services:
+  bzw-dreamfusion:
+    build:
+        dockerfile: docker/Dockerfile
+        context: .
+    tty: true
+    stdin_open: true
+    restart: 'no'
+    ports:
+      - "7860:7860"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
